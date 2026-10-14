@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Wild World – A vadon világa</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#17251e;color:#f4f8e9;font-family:system-ui,Arial,sans-serif}main{max-width:900px;margin:auto;padding:12px}h1{font-size:clamp(22px,5vw,34px);margin:4px 0}p{margin:4px 0 12px;color:#d2e4c8}.hud{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.stat{background:#263c2d;border:1px solid #55785a;border-radius:12px;padding:8px 11px;font-size:14px;flex:1;min-width:110px}canvas{width:100%;height:auto;display:block;border:3px solid #66845a;border-radius:14px;background:#9dcc73;touch-action:manipulation}.controls{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}.controls button,button{background:#31543a;color:white;border:1px solid #73956d;border-radius:11px;padding:11px 8px;font-weight:700;font-size:14px}.controls button:active,button:active{background:#527b4d}.actions{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px}.actions button{background:#344e6d}.note{font-size:12px;color:#d0dfca;line-height:1.5;margin:10px 2px}.msg{background:#213528;border-radius:10px;padding:10px;margin-top:9px;min-height:40px}select{background:#263c2d;color:white;border:1px solid #73956d;border-radius:8px;padding:8px}
+</style></head>
+<body><main>
+<h1>🐾 Wild World – A vadon világa</h1><p>Fedezd fel az élővilágot, gyűjts növényeket, és figyeld meg az állatokat!</p>
+<div class="hud"><div class="stat">🌱 Növények: <b id="plants">0</b></div><div class="stat">🐾 Állatok: <b id="animals">0</b></div><div class="stat">⭐ Pontok: <b id="score">0</b></div><div class="stat">🕒 Napszak: <b id="daytime">Nappal</b></div><div class="stat">🌦️ Időjárás: <b id="weather">Derült</b></div></div>
+<canvas id="game" width="720" height="480" aria-label="Felülnézetes állatos játék"></canvas>
+<div class="msg" id="msg">Üdv a vadonban! Mozogj a nyilakkal vagy a gombokkal. Gyűjts növényeket, és közelíts az állatokhoz!</div>
+<div class="controls">
+<button data-move="up">⬆️ Fel</button><button data-move="left">⬅️ Balra</button><button data-move="right">➡️ Jobbra</button>
+<button data-move="down">⬇️ Le</button><button id="wait">⏳ Várakozás</button><button id="restart">🔄 Újrakezdés</button>
+</div>
+<div class="actions"><button id="drink">💧 Ivás a tónál</button><button id="eat">🌿 Növény gyűjtése</button><button id="observe">🔎 Állat megfigyelése</button><button id="addHerb">🐇 Növényevő hozzáadása</button><button id="addPred">🐺 Ragadozó hozzáadása</button><button id="addOmni">🐻 Mindenevő hozzáadása</button><button id="help">❔ Játékszabályok</button></div>
+<div class="note">Tipp: a játék tableten is használható. A nyilakkal vagy a képernyőgombokkal mozoghatsz. A növényevőket 🌱 növények, a mindenevőket változatos táplálék, a ragadozókat más állatok táplálják. Ez egy egyszerű, rajzfilmes ökoszisztéma-prototípus.</div>
+</main>
+<script>
+(()=> {
+const c=document.getElementById('game'),ctx=c.getContext('2d'),W=c.width,H=c.height;
+const el=id=>document.getElementById(id);
+let player,plants,animals,score,turn,lastFrame=0,worldTime=0,babyTimer=0,weatherParticles=[];
+const species=[
+{name:'Nyúl',emoji:'🐇',kind:'herb',color:'#f7e8c8'},
+{name:'Szarvas',emoji:'🦌',kind:'herb',color:'#bc8953'},
+{name:'Róka',emoji:'🦊',kind:'omni',color:'#e8873c'},
+{name:'Medve',emoji:'🐻',kind:'omni',color:'#79563e'},
+{name:'Farkas',emoji:'🐺',kind:'pred',color:'#9ba5b2'},
+{name:'Oroszlán',emoji:'🦁',kind:'pred',color:'#e2b64d'}
+];
+function rand(n){return Math.floor(Math.random()*n)}
+function fresh(){player={x:W/2,y:H/2};score=0;turn=0;worldTime=0;babyTimer=0;weatherParticles=[];plants=[];animals=[];for(let i=0;i<35;i++)plants.push({x:20+rand(W-40),y:20+rand(H-40),taken:false});for(let i=0;i<13;i++)animals.push(makeAnimal());say('Üdv a vadonban! Gyűjts növényeket, figyeld meg az állatokat, és építs élő ökoszisztémát!');draw()}
+function makeAnimal(kind){let s=species.filter(x=>!kind||x.kind===kind);return {x:20+rand(W-40),y:20+rand(H-40),s:s[rand(s.length)],dx:0,dy:0}}
+function say(t){el('msg').textContent=t}
+function stats(){el('plants').textContent=plants.filter(p=>!p.taken).length;el('animals').textContent=animals.length;el('score').textContent=score;el('daytime').textContent=(Math.floor(worldTime/25)%2===0?'Nappal':'Éjszaka');el('weather').textContent=weatherName()}
+function season(){return Math.floor(worldTime/150)%4}function weatherName(){const s=season();if(s===3)return 'Hóesés';if(s===2)return 'Eső';return 'Derült'}
+function move(d){let step=22;if(d==='up')player.y-=step;if(d==='down')player.y+=step;if(d==='left')player.x-=step;if(d==='right')player.x+=step;player.x=Math.max(14,Math.min(W-14,player.x));player.y=Math.max(14,Math.min(H-14,player.y));turn++;animals.forEach(a=>{a.x=Math.max(12,Math.min(W-12,a.x+(rand(3)-1)*13));a.y=Math.max(12,Math.min(H-12,a.y+(rand(3)-1)*13))});draw()}
+function nearby(list){return list.map((v,i)=>({v,i,d:Math.hypot(v.x-player.x,v.y-player.y)})).sort((a,b)=>a.d-b.d)[0]}
+function collect(){let n=nearby(plants.filter(p=>!p.taken));if(n&&n.d<42){n.v.taken=true;score+=2;say('🌿 Sikerült! Találtál egy növényt. +2 pont.')}else say('Nincs elég közel növény. Mozogj a zöld növényekhez!');stats();draw()}
+function observe(){let n=nearby(animals);if(n&&n.d<70){score++;say(n.v.s.emoji+' '+n.v.s.name+' – '+({herb:'növényevő, növényeket eszik.',omni:'mindenevő, változatos táplálékot fogyaszt.',pred:'ragadozó, más állatokra vadászik.'}[n.v.s.kind])+' +1 megfigyelési pont!')}else say('Közelíts egy állathoz, hogy megfigyelhesd!');stats()}
+function circle(x,y,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill()}
+function animate(now){if(!lastFrame)lastFrame=now;const dt=Math.min(40,now-lastFrame);lastFrame=now;
+animals.forEach(a=>{
+ // Az állatok lassan vándorolnak, és nem vadásznak egymásra.
+ // A növényevők és mindenevők megkeresik a közeli növényeket.
+ const canEatPlants = a.s.kind==='herb' || a.s.kind==='omni';
+ if(canEatPlants){
+   const food=plants.find(p=>!p.taken && Math.hypot(p.x-a.x,p.y-a.y)<95);
+   if(food){
+     a.tx=food.x; a.ty=food.y;
+     if(Math.hypot(food.x-a.x,food.y-a.y)<22){
+       food.taken=true; food.eatenAt=worldTime; a.tx=null; a.ty=null;
+     }
+   }
+ }
+ if(!a.tx||!a.ty||Math.hypot(a.tx-a.x,a.ty-a.y)<5||Math.random()<0.004){
+   a.tx=18+Math.random()*(W-36);a.ty=35+Math.random()*(H-36)
+ }
+ const speed=a.s.kind==='pred'?0.003:0.0028;
+ a.x+=(a.tx-a.x)*speed*(dt/16);a.y+=(a.ty-a.y)*speed*(dt/16);
+ a.x=Math.max(18,Math.min(W-18,a.x));a.y=Math.max(35,Math.min(H-18,a.y));
+});
+ // Finom távolságtartás: az állatok ne olvadjanak egymásba.
+ for(let i=0;i<animals.length;i++)for(let j=i+1;j<animals.length;j++){
+   const a=animals[i],b=animals[j],dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy);
+   if(d>0&&d<34){const push=(34-d)*0.025;a.x-=dx/d*push;a.y-=dy/d*push;b.x+=dx/d*push;b.y+=dy/d*push}
+ }
+ // Néha új kisállat születik, ha van elég hely az élőhelyen.
+ babyTimer += dt/1000;
+ if(babyTimer>35 && animals.length<24 && Math.random()<0.025){
+   const parents=animals.filter(a=>a.s.kind==='herb');
+   if(parents.length>=2){const parent=parents[rand(parents.length)];const baby={x:parent.x+rand(25)-12,y:parent.y+rand(25)-12,s:parent.s,tx:parent.x,ty:parent.y,baby:true};animals.push(baby);say('🐣 Új kis növényevő született!');babyTimer=0;}
+ }
+ draw();requestAnimationFrame(animate)}
+function draw(){ctx.clearRect(0,0,W,H);
+ const night=(Math.floor(worldTime/25)%2===1);
+ ctx.fillStyle=night?'#38536a':'#a8d67c';ctx.fillRect(0,0,W,H);
+ // grassy patches
+ for(let i=0;i<22;i++){ctx.fillStyle=night?(i%2?'#344e60':'#405e6c'):(i%2?'#9bce70':'#b5dc88');ctx.beginPath();ctx.ellipse((i*127+37)%W,(i*83+25)%H,45,28,(i%5)*.3,0,Math.PI*2);ctx.fill()}
+ // pond
+ ctx.fillStyle=night?'#437fa0':'#6dc9df';ctx.beginPath();ctx.ellipse(570,100,82,48,-.25,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#d8f5f5';ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(570,100,60,30,-.25,0,Math.PI*2);ctx.stroke();
+ // trees
+ for(let i=0;i<9;i++){let x=(i*91+18)%W,y=(i*143+12)%H;if(Math.hypot(x-player.x,y-player.y)>35){circle(x,y,17,'#8a5c3a');circle(x,y-7,22,'#367d43');circle(x-9,y-13,12,'#4b9a4e')}}
+ plants.forEach(p=>{if(!p.taken){ctx.font='20px sans-serif';ctx.fillText('🌿',p.x-10,p.y+7)}});
+ function oval(x,y,rx,ry,color,angle=0){
+   ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(0,0,rx,ry,0,0,Math.PI*2);ctx.fill();ctx.restore();
+ }
+ function dot(x,y,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill()}
+ function drawCritter(a){
+   const x=a.x,y=a.y; // felülnézeti, saját rajzolt állatfigurák
+   const fur=a.s.color, dark=({herb:'#74543c',omni:'#713d27',pred:'#4c5664'}[a.s.kind]);
+   // Lábak és farok
+   if(a.s.name==='Nyúl'){
+     oval(x-8,y-3,5,10,'#e6d7c0',-.25);oval(x+8,y-3,5,10,'#e6d7c0',.25);
+     oval(x-4,y-12,3,8,fur,-.2);oval(x+4,y-12,3,8,fur,.2);
+     oval(x-4,y-13,1.3,6,'#d98e9d',-.2);oval(x+4,y-13,1.3,6,'#d98e9d',.2);
+     dot(x,y+10,4,'#fff0e8');
+   }else if(a.s.name==='Szarvas'){
+     oval(x-9,y+2,4,8,fur,-.2);oval(x+9,y+2,4,8,fur,.2);
+     oval(x-6,y-11,2,8,'#b99b72',-.6);oval(x+6,y-11,2,8,'#b99b72',.6);
+     // agancsok
+     ctx.strokeStyle='#e8d5ad';ctx.lineWidth=2;ctx.lineCap='round';
+     [-1,1].forEach(d=>{ctx.beginPath();ctx.moveTo(x+d*4,y-10);ctx.lineTo(x+d*9,y-16);ctx.lineTo(x+d*12,y-17);ctx.moveTo(x+d*8,y-15);ctx.lineTo(x+d*8,y-19);ctx.stroke()});
+   }else if(a.s.name==='Róka'){
+     oval(x-10,y+5,4,8,fur,-.4);oval(x+10,y+5,4,8,fur,.4);
+     oval(x,y+12,4,7,'#f6f0e6');oval(x,y-13,5,8,fur);
+     oval(x,y-19,4,5,'#d9d0c3'); 
+   }else if(a.s.name==='Medve'){
+     oval(x-10,y+3,5,7,dark,-.2);oval(x+10,y+3,5,7,dark,.2);
+     dot(x-7,y-12,4,dark);dot(x+7,y-12,4,dark);
+   }else if(a.s.name==='Farkas'){
+     oval(x-10,y+3,4,8,fur,-.2);oval(x+10,y+3,4,8,fur,.2);
+     oval(x,y-14,5,8,fur);oval(x-4,y-19,3,5,dark,-.25);oval(x+4,y-19,3,5,dark,.25);
+   }else{ // oroszlán
+     dot(x-7,y-12,5,'#bd8436');dot(x+7,y-12,5,'#bd8436');
+     oval(x,y-11,10,9,'#b8792d');oval(x,y-11,6,6,'#f0d39a');
+     oval(x-10,y+4,4,8,fur,-.2);oval(x+10,y+4,4,8,fur,.2);
+   }
+   // Test, hát és fej: a rajz minden fajhoz külön színárnyalatot kap
+   oval(x,y+2,10,12,fur);
+   oval(x,y-9,8,8,fur);
+   oval(x,y-5,5,5,({herb:'#f2e4cf',omni:'#f2c49a',pred:'#dce1e5'}[a.s.kind]));
+   // Fülek / pofa részletek
+   if(a.s.name==='Nyúl'){oval(x-5,y-13,2.5,7,fur,-.25);oval(x+5,y-13,2.5,7,fur,.25)}
+   if(a.s.name==='Róka'){ctx.beginPath();ctx.moveTo(x-5,y-10);ctx.lineTo(x,y-20);ctx.lineTo(x+5,y-10);ctx.closePath();ctx.fillStyle=fur;ctx.fill();dot(x,y-3,2,'#fff4e4')}
+   if(a.s.name==='Medve'){dot(x-5,y-14,2,'#e4c2a0');dot(x+5,y-14,2,'#e4c2a0')}
+   if(a.s.name==='Farkas'){ctx.beginPath();ctx.moveTo(x-6,y-12);ctx.lineTo(x-4,y-22);ctx.lineTo(x,y-13);ctx.closePath();ctx.fillStyle=fur;ctx.fill();ctx.beginPath();ctx.moveTo(x+6,y-12);ctx.lineTo(x+4,y-22);ctx.lineTo(x,y-13);ctx.closePath();ctx.fill()}
+   // Szemek, orr és finom árnyék
+   dot(x-3,y-8,1.5,'#20251f');dot(x+3,y-8,1.5,'#20251f');dot(x,y-3,1.7,'#30251f');
+ }
+ animals.forEach(a=>{
+   const r=19;
+   ctx.beginPath();ctx.fillStyle=a.s.color;ctx.arc(a.x,a.y,r,0,Math.PI*2);ctx.fill();
+   ctx.lineWidth=2;ctx.strokeStyle=({herb:'#4b8b47',omni:'#a66c35',pred:'#566273'}[a.s.kind]);ctx.stroke();
+   drawCritter(a);
+   ctx.textAlign='center';ctx.font='bold 11px system-ui';ctx.fillStyle=night?'#ffffff':'#183322';
+   ctx.fillText(a.s.name,a.x,a.y-r-18);
+   ctx.font='10px system-ui';ctx.fillText(({herb:'Növényevő',omni:'Mindenevő',pred:'Ragadozó'}[a.s.kind]),a.x,a.y-r-6);
+   ctx.textAlign='start';
+ });
+ // player marker
+ circle(player.x,player.y,16,'#f6f0cc');ctx.strokeStyle='#284c35';ctx.lineWidth=3;ctx.stroke();ctx.font='23px sans-serif';ctx.fillText('🧭',player.x-12,player.y+8);
+ ctx.fillStyle=night?'#f1f4e8':'#25402b';ctx.font='bold 14px system-ui';ctx.fillText('VADON • '+(Math.floor(worldTime/50)+1)+'. NAP',12,20);stats()}
+document.querySelectorAll('[data-move]').forEach(b=>b.addEventListener('click',()=>move(b.dataset.move)));
+document.addEventListener('keydown',e=>{const k=e.key.toLowerCase(),m={arrowup:'up',w:'up',arrowdown:'down',s:'down',arrowleft:'left',a:'left',arrowright:'right',d:'right'};if(m[k]){e.preventDefault();move(m[k])}});
+el('drink').onclick=()=>{const pond=Math.hypot(player.x-570,(player.y-100)*1.2);if(pond<105){score++;say('💧 Ittál a tóból! +1 pont. Az állatok is a tóhoz vándorolnak.');}else say('Menj közelebb a tóhoz a jobb felső részen, és ott nyomd meg az ivás gombot!');stats();draw()};
+el('eat').onclick=collect;el('observe').onclick=observe;el('wait').onclick=()=>{turn++;animals.forEach(a=>{a.x=Math.max(12,Math.min(W-12,a.x+rand(41)-20));a.y=Math.max(12,Math.min(H-12,a.y+rand(41)-20))});say('Eltelt egy kis idő a vadonban. Az állatok lassan vándorolnak; a növényevők és mindenevők megeszik a közelükben lévő növényeket.');draw()};
+el('addHerb').onclick=()=>{animals.push(makeAnimal('herb'));say('🐇 Új növényevő érkezett az élőhelyre!');draw()};
+el('addPred').onclick=()=>{animals.push(makeAnimal('pred'));say('🐺 Új ragadozó érkezett az élőhelyre!');draw()};
+el('addOmni').onclick=()=>{animals.push(makeAnimal('omni'));say('🐻 Új mindenevő érkezett az élőhelyre!');draw()};
+el('help').onclick=()=>say('A növények kb. 10 másodperc alatt újranőnek. Időnként növényevő bébi születhet. A rókaodú a bal alsó részen van. Az évszakok váltakoznak: esős és havas idő is lehet; télen a medvék pihennek. A tó közelében ihatsz. Az állatok nem vadásznak egymásra.');
+el('restart').onclick=fresh;fresh();requestAnimationFrame(animate);
+})();
+</script></body></html>
